@@ -1,0 +1,255 @@
+{
+  "name": "CropTube_Learning_Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.crop_name + ' farming ' + $json.language }}"
+            },
+            {
+              "name": "type",
+              "value": "video"
+            },
+            {
+              "name": "maxResults",
+              "value": "15"
+            },
+            {
+              "name": "relevanceLanguage",
+              "value": "={{ {'English':'en','Telugu':'te','Tamil':'ta','Kannada':'kn','Malayalam':'ml','Konkani':'kn'}[$json.language] ?? 'kn' }}"
+            },
+            {
+              "name": "videoDuration",
+              "value": "medium"
+            },
+            {
+              "name": "key",
+              "value": "YOUR_YOUTUBE_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        -128
+      ],
+      "id": "2965ae7e-307b-4f49-aa6b-b69110a5c139",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/videos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,statistics,contentDetails"
+            },
+            {
+              "name": "id",
+              "value": "=={{ $json.items.map(i => i.id.videoId).join(',') }}"
+            },
+            {
+              "name": "key",
+              "value": "YOUR_YOUTUBE_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1104,
+        -128
+      ],
+      "id": "d1f8eb8a-cc7e-4a6b-809d-91416dfe09ac",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all()[0].json.items;\nconst cropName = ($('On form submission').first().json.crop_name || '').toLowerCase();\n\nconst scored = items.map(video => {\n  const views = parseInt(video.statistics?.viewCount || 0);\n  const title = (video.snippet.title || '').toLowerCase();\n  let score = views;\n  if (title.includes(cropName)) score += 50000;\n  if (title.includes('farming') || title.includes('cultivation')) score += 30000;\n  const dur = video.contentDetails?.duration || '';\n  const mins = parseInt(dur.match(/(\\d+)M/)?.[1] || '0');\n  const secs = dur.match(/(\\d+)S/)?.[1] || '00';\n  const duration = `${mins}:${secs.padStart(2, '0')}`;\n  if (mins < 2 || mins > 30) score = 0;\n  return {\n    score,\n    title: video.snippet.title,\n    channel: video.snippet.channelTitle,\n    thumbnail: video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.default?.url,\n    description: (video.snippet.description || '').slice(0, 200),\n    duration,\n    youtube_url: `https://www.youtube.com/watch?v=${video.id}`\n  };\n});\n\nconst top15 = scored\n  .filter(v => v.score > 0)\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 15)\n  .map((v, i) => ({\n    ...v,\n    batch: i < 4 ? 'initial' : 'load_more'\n  }));\n\nreturn [{ json: { videos: top15 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        -128
+      ],
+      "id": "a01f5b2f-267d-410e-9b6c-8837c0da0d36",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.all()[0].json;\nconst cropName = $('On form submission').first().json.crop_name || 'unknown';\nconst language = $('On form submission').first().json.language || 'unknown';\n\nconst fileName = `${cropName.toLowerCase()}_${language.toLowerCase()}.json`;\n\nconst formatVideos = (videos) => videos.map((v, index) => ({\n  id: index + 1,\n  batch: v.batch,\n  title: v.title,\n  channel: v.channel,\n  duration: v.duration,\n  thumbnail: {\n    url: v.thumbnail,\n    alt: `${v.title} - ${v.channel}`\n  },\n  description: v.description,\n  link: {\n    label: \"Watch on YouTube\",\n    url: v.youtube_url\n  }\n}));\n\nconst initialVideos = input.videos.filter(v => v.batch === 'initial');\nconst loadMoreVideos = input.videos.filter(v => v.batch === 'load_more');\n\nconst payload = {\n  meta: {\n    crop: cropName,\n    language: language,\n    generated_at: new Date().toISOString().split('T')[0],\n    total_videos: input.videos.length,\n    initial_count: initialVideos.length,\n    load_more_count: loadMoreVideos.length\n  },\n  initial: formatVideos(initialVideos),\n  load_more: formatVideos(loadMoreVideos)\n};\n\nconst fileName2 = fileName;\n\nreturn [{\n  json: {\n    payload: JSON.stringify(payload, null, 2),\n    fileName: fileName2\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        -128
+      ],
+      "id": "cb9daf24-091a-4ec5-87d7-18f61e9ae604",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "your-s3-bucket-name",
+        "fileName": "={{ 'learning-videos/' + $json.fileName }}",
+        "binaryData": false,
+        "fileContent": "=={{ $json.payload }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        -128
+      ],
+      "id": "c72ee2e9-e7b2-4920-b546-150c592ee969",
+      "name": "Upload a file",
+      "credentials": {
+        "aws": {
+          "id": "YOUR_AWS_CREDENTIAL_ID",
+          "name": "AWS (IAM) account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "CropTube — Generate Learning Videos",
+        "formDescription": "Fill crop name and language to generate videos",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "crop_name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "language",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "English"
+                  },
+                  {
+                    "option": "Kannada"
+                  },
+                  {
+                    "option": "Telugu"
+                  },
+                  {
+                    "option": "Tamil"
+                  },
+                  {
+                    "option": "Malayalam"
+                  },
+                  {
+                    "option": "Hindi"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        688,
+        -128
+      ],
+      "id": "5c60148c-b569-426a-9680-dd9416040f2d",
+      "name": "On form submission",
+      "webhookId": "3540be73-cd21-4b2d-bb24-f505c2bc3c74"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "5944be1a-a03d-4d2e-b202-94a4657fcf73",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "id": "CLlh14bmwCe69jXt",
+  "tags": []
+}
