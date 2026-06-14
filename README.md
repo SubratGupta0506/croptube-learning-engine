@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # CropTube Learning Engine
 
 An automated pipeline that curates crop-specific farming tutorial videos from YouTube, ranks them by relevance and popularity, filters out non-farming content (gaming, dairy, livestock, etc.), and serves them through a REST API for use in mobile/web apps.
@@ -97,3 +98,7 @@ The API applies a regex-based filter (`is_real_farming_video`) on top of the cur
 ## License
 
 MIT
+=======
+# croptube-learning-engine
+Automated pipeline that curates and serves crop-specific farming tutorial videos via YouTube API, n8n, and AWS S3
+>>>>>>> d82c36b54b1fd1f58f4086d7a41fc735d227b3cb
